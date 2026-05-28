@@ -1,0 +1,12 @@
+/vendor/
+/output/
+/uploads/
+
+
+# ========================= # SISTEMA OPERACIONAL # ========================= .
+.DS_Store 
+Thumbs.db
+
+# ========================= # IDE / EDITOR # ========================= 
+.vscode/ 
+.idea/
