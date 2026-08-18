@@ -64,6 +64,17 @@ button{
     cursor:pointer;
 }
 
+.acoes{
+    display:flex;
+    align-items:center;
+    gap:16px;
+}
+
+.tutorial-link{
+    color:#0056b3;
+    font-weight:bold;
+}
+
 </style>
 </head>
 <body>
@@ -94,9 +105,15 @@ button{
     <input type="hidden" name="canvas_w" id="canvas_w">
     <input type="hidden" name="canvas_h" id="canvas_h">
 
-    <button type="submit">
-        Processar PDF
-    </button>
+    <div class="acoes">
+        <button type="submit">
+            Processar PDF
+        </button>
+
+        <a class="tutorial-link" href="tutorial.md" target="_blank" rel="noopener noreferrer">
+            Abrir tutorial
+        </a>
+    </div>
 
 </form>
 

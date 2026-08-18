@@ -3,6 +3,66 @@
 require 'vendor/autoload.php';
 
 use setasign\Fpdi\Tcpdf\Fpdi;
+use setasign\Fpdi\PdfParser\CrossReference\CrossReferenceException;
+
+function responderErro(string $mensagem, int $status = 422): void
+{
+    http_response_code($status);
+    header('Content-Type: text/plain; charset=UTF-8');
+    echo $mensagem;
+    exit;
+}
+
+/**
+ * Regrava xref/object streams em uma estrutura compatível com o parser
+ * gratuito do FPDI. O arquivo original nunca é alterado.
+ */
+function normalizarPdfParaFpdi(string $arquivo): string
+{
+    $qpdf = null;
+
+    foreach (['/usr/bin/qpdf', '/usr/local/bin/qpdf'] as $candidato) {
+        if (is_executable($candidato)) {
+            $qpdf = $candidato;
+            break;
+        }
+    }
+
+    if ($qpdf === null) {
+        throw new RuntimeException(
+            'Este PDF usa uma compactação não suportada pelo FPDI gratuito. ' .
+            'Instale o qpdf no servidor (sudo apt-get install qpdf) e tente novamente.'
+        );
+    }
+
+    $temporario = tempnam(sys_get_temp_dir(), 'fpdi_');
+    if ($temporario === false) {
+        throw new RuntimeException('Não foi possível criar o PDF temporário.');
+    }
+
+    // O qpdf deve criar o arquivo; removemos apenas o placeholder do tempnam().
+    unlink($temporario);
+    $temporario .= '.pdf';
+
+    $comando = escapeshellarg($qpdf)
+        . ' --object-streams=disable --force-version=1.4 -- '
+        . escapeshellarg($arquivo) . ' '
+        . escapeshellarg($temporario) . ' 2>&1';
+
+    $saidaComando = [];
+    $codigoSaida = 0;
+    exec($comando, $saidaComando, $codigoSaida);
+
+    // qpdf usa 3 para avisos recuperáveis; nesses casos o PDF foi gerado.
+    if (!in_array($codigoSaida, [0, 3], true) || !is_file($temporario)) {
+        @unlink($temporario);
+        throw new RuntimeException(
+            'Não foi possível converter este PDF para um formato compatível.'
+        );
+    }
+
+    return $temporario;
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -49,7 +109,12 @@ if(!is_writable('uploads')){
 }   
 
 
-$arquivo = 'uploads/'.$_POST['arquivo'];
+$nomeArquivo = basename((string) ($_POST['arquivo'] ?? ''));
+$arquivo = realpath('uploads/'.$nomeArquivo);
+
+if ($nomeArquivo === '' || $arquivo === false || !is_file($arquivo)) {
+    responderErro('Arquivo PDF não encontrado.');
+}
 
 $xTela = floatval($_POST['x']);
 $yTela = floatval($_POST['y']);
@@ -69,8 +134,26 @@ $paginaSelecionada = intval($_POST['pagina']);
 */
 
 $pdf = new FPDI();
+$arquivoTemporario = null;
 
-$pageCount = $pdf->setSourceFile($arquivo);
+try {
+    $pageCount = $pdf->setSourceFile($arquivo);
+} catch (CrossReferenceException $erro) {
+    try {
+        $arquivoTemporario = normalizarPdfParaFpdi($arquivo);
+        register_shutdown_function(static function () use ($arquivoTemporario): void {
+            if (is_file($arquivoTemporario)) {
+                unlink($arquivoTemporario);
+            }
+        });
+
+        // A instância anterior já inicializou o parser com erro.
+        $pdf = new FPDI();
+        $pageCount = $pdf->setSourceFile($arquivoTemporario);
+    } catch (Throwable $erroNormalizacao) {
+        responderErro($erroNormalizacao->getMessage());
+    }
+}
 
 /*
 |--------------------------------------------------------------------------
